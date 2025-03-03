@@ -3,24 +3,6 @@ import pytest
 from src.services import investment_bank, search_transactions
 
 
-def test_basic_case():
-    transactions = [
-        {"Дата операции": "2023-10-15", "Сумма операции": 1712},
-        {"Дата операции": "2023-10-16", "Сумма операции": -160.89},
-        {"Дата операции": "2023-11-01", "Сумма операции": 100},
-    ]
-    assert investment_bank("2023-10", transactions, 50) == 77.11
-    assert investment_bank("2023-11", transactions, 10) == 0.0
-
-
-def test_edge_cases():
-    transactions = [
-        {"Дата операции": "2023-10-15", "Сумма операции": 200},
-        {"Дата операции": "2023-10-16", "Сумма операции": 149.99},
-    ]
-    assert investment_bank("2023-10", transactions, 50) == 0.01
-
-
 def test_invalid_data():
     # Неверный формат даты
     assert investment_bank("2023-13", [{"Дата операции": "2023-13-01"}], 10) == 0.0

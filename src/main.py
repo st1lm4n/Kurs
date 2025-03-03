@@ -3,8 +3,8 @@ import json
 
 import pandas as pd
 
-from reports import category_spending
-from services import find_person_transfers, investment_bank, search_transactions
+from src.reports import spending_by_category
+from src.services import find_person_transfers, investment_bank, search_transactions
 from utils import load_transactions
 from views import generate_response, get_greeting
 
@@ -25,8 +25,8 @@ def print_menu():
 def main():
     # Загрузка данных
     try:
-        transactions = load_transactions("data/operations.xlsx")
-        df = pd.read_excel("data/operations.xlsx", parse_dates=["Дата операции"])
+        transactions = load_transactions("..//data/operations.xlsx")
+        df = pd.read_excel("..//data/operations.xlsx", parse_dates=["Дата платежа"])
     except Exception as e:
         print(f"Ошибка загрузки данных: {e}")
         return
@@ -72,16 +72,39 @@ def main():
                 print(f"{idx}. {t.get('Описание', '')} - {t.get('Сумма операции', 0)} ₽")
 
         elif choice == "5":
+
             # Отчет по тратам
-            category = input("Введите категорию: ")
-            date = input("Введите дату (формат: ГГГГ-ММ-ДД) или оставьте пустым: ")
+
+            category = input("Введите категорию: ").strip()  # Удаляем пробелы
+
+            date_input = input("Введите дату (формат: ГГГГ-ММ-ДД) или оставьте пустым: ").strip()
+
             try:
-                result = category_spending(df, category, date or None)
-                print("Отчет по месяцам:")
-                for month, amount in result.items():
-                    print(f"{month}: {amount:.2f} ₽")
+
+                # Преобразование даты
+
+                date = pd.to_datetime(date_input) if date_input else None
+
+                result = spending_by_category(df, category, date)
+
+                if not result.empty:
+
+                    print("\nОтчет по месяцам:")
+
+                    for _, row in result.iterrows():
+                        print(f"{row['Месяц']}: {row['Сумма']:.2f} ₽")
+
+                else:
+
+                    print("\nНет данных для отчета. Проверьте:")
+
+                    print("- Правильность категории")
+
+                    print("- Наличие транзакций за последние 3 месяца")
+
             except Exception as e:
-                print(f"Ошибка: {e}")
+
+                print(f"\nОшибка: {e}")
 
         elif choice == "6":
             print("Выход из программы...")

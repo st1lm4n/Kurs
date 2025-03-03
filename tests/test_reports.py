@@ -1,66 +1,73 @@
 # test_reports.py
+import json
+import os
 
 import pandas as pd
 import pytest
 
-from src.reports import category_spending
+from src.reports import report_to_file, spending_by_category
 
 
 @pytest.fixture
-def sample_dataframe():
-    """Фикстура с тестовыми данными"""
+def sample_data():
     return pd.DataFrame(
         {
-            "Дата": pd.date_range(start="2023-01-01", periods=180, freq="D"),
-            "Категория": ["Еда"] * 90 + ["Транспорт"] * 90,
-            "Сумма": [100] * 180,
+            "Дата платежа": ["01.01.2023", "15.01.2023", "01.02.2023", "15.03.2023", "01.04.2023"],
+            "Категория": ["Еда", "Еда", "Транспорт", "Еда", "Развлечения"],
+            "Сумма платежа": [1000, 1500, 500, 2000, 3000],
         }
     )
 
 
-def test_basic_functionality(sample_dataframe):
-    # Тест базового функционала
-    result = category_spending(sample_dataframe, "Еда", "2023-06-15")
-
-    # Проверка структуры результата
-    assert isinstance(result, dict)
-    assert len(result) == 1  # Апрель, май, июнь
-    assert all(len(k) == 7 and k.count("-") == 1 for k in result.keys())  # Формат YYYY-MM
+def test_spending_by_category_basic(sample_data):
+    # Тест базового сценария
+    result = spending_by_category(sample_data, "Еда", "2023-04-01")
+    expected = pd.DataFrame({"Месяц": ["2023-01", "2023-02", "2023-03"], "Сумма": [2500, 0, 2000]})
+    pd.testing.assert_frame_equal(result, expected)
 
 
-def test_edge_cases(sample_dataframe):
-    # Тест с несуществующей категорией
-    assert category_spending(sample_dataframe, "Развлечения") == {}
-
-    # Тест с пустым DataFrame
-    assert category_spending(pd.DataFrame(), "Еда") == {}
+def test_spending_by_category_empty(sample_data):
+    # Тест для несуществующей категории
+    result = spending_by_category(sample_data, "Техника")
+    assert result.empty
 
 
-def test_error_handling(caplog):
-    # Тест обработки ошибок с некорректными данными
-    invalid_df = pd.DataFrame({"Wrong_Column": [1]})
-    result = category_spending(invalid_df, "Еда")
-
-    # Проверка возвращаемого значения
-    assert result == {}
-
-    # Проверка записи в лог
-    assert "Ошибка анализа трат" in caplog.text
+def test_spending_by_category_missing_columns():
+    # Тест отсутствия обязательных колонок
+    invalid_data = pd.DataFrame({"Date": [], "Category": [], "Amount": []})
+    result = spending_by_category(invalid_data, "Еда")
+    assert result.empty
 
 
-def test_month_grouping():
-    # Тест точной группировки по месяцам
-    test_data = pd.DataFrame(
-        {
-            "Дата": ["2023-03-31", "2023-04-01", "2023-05-15", "2023-06-30"],
-            "Категория": ["Тест"] * 4,
-            "Сумма": [100] * 4,
-        }
-    )
-    test_data["Дата"] = pd.to_datetime(test_data["Дата"])
+def test_report_to_file_decorator(sample_data, tmp_path):
+    # Тест декоратора сохранения в файл
+    filename = tmp_path / "test_report.json"
 
-    result = category_spending(test_data, "Тест", "2023-06-30")
+    @report_to_file(filename=filename)
+    def test_func():
+        return sample_data
 
-    # Проверка группировки
-    assert len(result) == 4
-    assert "2023-04" in result  # Апрель должен попасть в отчет
+    # Вызываем декорированную функцию
+    result = test_func()
+
+    # Проверяем создание файла
+    assert os.path.exists(filename)
+
+    # Проверяем содержимое файла
+    with open(filename, "r") as f:
+        content = json.load(f)
+        assert len(content) == 5
+
+
+def test_price_formatting(sample_data):
+    # Тест форматирования цен
+    result = spending_by_category(sample_data, "Еда")
+    assert all(result["Сумма"] >= 0)
+    assert all(len(month) == 7 for month in result["Месяц"])  # Формат ГГГГ-ММ
+
+
+def test_edge_cases():
+    # Тест пограничных случаев
+    empty_data = pd.DataFrame(columns=["Дата платежа", "Категория", "Сумма платежа"])
+    result = spending_by_category(empty_data, "Еда")
+    assert result.empty

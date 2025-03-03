@@ -1,24 +1,48 @@
 import logging
 import math
 import re
-from datetime import datetime
-from functools import reduce
 from typing import Any, Dict, List
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 
 def investment_bank(month: str, transactions: List[Dict[str, Any]], limit: int) -> float:
-    """Рассчитывает сумму для инвесткопилки через округление трат"""
+    """
+    Инвесткопилка
+    """
     try:
-        filter_by_month = lambda t: (datetime.strptime(t["Дата операции"], "%Y-%m-%d").strftime("%Y-%m") == month)
+        if limit not in {10, 50, 100}:
+            raise ValueError("Недопустимый шаг округления")
 
-        calculate = lambda t: math.ceil(abs(t["Сумма операции"]) / limit) * limit - abs(t["Сумма операции"])
+        total = 0.0
+        target_year, target_month = map(int, month.split("-"))
 
-        contributions = map(calculate, filter(filter_by_month, transactions))
-        return round(reduce(lambda a, b: a + b, contributions, 0.0), 2)
+        for transaction in transactions:
+            try:
+                # Получаем дату из транзакции (уже в datetime формате)
+                date = transaction["Дата операции"]
+
+                # Проверяем совпадение месяца и года
+                if date.year != target_year or date.month != target_month:
+                    continue
+
+                # Проверяем расходы (отрицательные суммы)
+                amount = transaction["Сумма операции"]
+                if amount >= 0:
+                    continue
+
+                # Расчет округления
+                abs_amount = abs(amount)
+                rounded = math.ceil(abs_amount / limit) * limit
+                total += rounded - abs_amount
+
+            except KeyError as e:
+                logging.error(f"Отсутствует поле: {e}")
+
+        return round(total, 2)
+
     except Exception as e:
-        logging.error(f"Ошибка: {e}")
+        logging.error(f"Ошибка расчета: {e}")
         return 0.0
 
 

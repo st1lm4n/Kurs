@@ -1,40 +1,37 @@
-import json
+# reports.py
 import logging
 from datetime import datetime
 from functools import wraps
+from typing import Optional
 
 import pandas as pd
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 
 def report_to_file(filename=None):
-    """Декоратор для отчетов"""
+    """Декоратор для сохранения отчетов в JSON файл"""
 
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            # Извлекаем имя файла, если оно передано
-            custom_filename = kwargs.pop("filename", None) if "filename" in kwargs else None
-            name = custom_filename or filename or f"{func.__name__}_{datetime.now().strftime('%Y%m%d')}.json"
-
-            # Выполняем функцию
-            result = func(*args, **kwargs)
-
-            # Сохраняем результат в файл
             try:
-                if isinstance(result, dict):
-                    # Преобразуем словарь в список для сохранения в JSON
-                    result_list = [{"Месяц": k, "Сумма": v} for k, v in result.items()]
-                    with open(name, "w", encoding="utf-8") as f:
-                        json.dump(result_list, f, ensure_ascii=False, indent=4)
-                else:
-                    # Если результат не словарь, сохраняем как есть
-                    pd.DataFrame(result).to_json(name, orient="records")
-                logging.info(f"Отчет сохранен в файл: {name}")
+                # Вызываем оригинальную функцию
+                result = func(*args, **kwargs)
+
+                # Генерируем имя файла
+                file_name = filename or f"{func.__name__}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+
+                # Сохраняем результат
+                if isinstance(result, pd.DataFrame):
+                    result.to_json(file_name, orient="records", indent=4, force_ascii=False)
+                    logging.info(f"Отчет сохранен в файл: {file_name}")
+
+                return result
+
             except Exception as e:
-                logging.error(f"Ошибка сохранения отчета: {e}")
-            return result
+                logging.error(f"Ошибка при сохранении отчета: {e}")
+                raise
 
         return wrapper
 
@@ -42,21 +39,42 @@ def report_to_file(filename=None):
 
 
 @report_to_file()
-def category_spending(df: pd.DataFrame, category: str, date: str = None, **kwargs) -> dict:
-    """Анализ трат по категории за последние 3 месяца"""
+def spending_by_category(transactions: pd.DataFrame, category: str, date: Optional[str] = None) -> pd.DataFrame:
+    """
+    Анализ трат по категории за последние 3 месяца
+    """
     try:
-        # Преобразуем дату в datetime
-        date = pd.to_datetime(date or datetime.now())
-        start_date = date - pd.DateOffset(months=3)
+        # Проверка наличия обязательных колонок
+        required_columns = ["Дата платежа", "Категория", "Сумма платежа"]
+        if not all(col in transactions.columns for col in required_columns):
+            raise ValueError("Отсутствуют обязательные колонки в данных")
+
+        # Преобразование столбца 'Дата платежа'
+        transactions["Дата платежа"] = pd.to_datetime(transactions["Дата платежа"], format="%d.%m.%Y")
+
+        # Преобразование даты отчета
+        current_date = pd.to_datetime(date) if date else datetime.now()
+        start_date = current_date - pd.DateOffset(months=3)
 
         # Фильтрация данных
-        filtered = df[(df["Категория"] == category) & (df["Дата"] >= start_date) & (df["Дата"] <= date)]
+        filtered = transactions[
+            (transactions["Категория"] == category)
+            & (transactions["Дата платежа"] >= start_date)
+            & (transactions["Дата платежа"] <= current_date)
+        ]
 
-        # Группировка по месяцам и суммирование
-        result = filtered.groupby(pd.Grouper(key="Дата", freq="ME"))["Сумма"].sum().to_dict()
+        # Отладочная печать
+        print(f"Найдено транзакций после фильтрации: {len(filtered)}")
 
-        # Преобразуем ключи в строки для JSON
-        return {k.strftime("%Y-%m"): v for k, v in result.items()}
+        # Группировка по месяцам
+        result = filtered.groupby(pd.Grouper(key="Дата платежа", freq="ME"))["Сумма платежа"].sum().reset_index()
+
+        # Форматирование результата
+        result = result.rename(columns={"Дата платежа": "Месяц", "Сумма платежа": "Сумма"})
+        result["Месяц"] = result["Месяц"].dt.strftime("%Y-%m")
+
+        return result
+
     except Exception as e:
-        logging.error(f"Ошибка анализа трат: {e}")
-        return {}
+        logging.error(f"Ошибка анализа данных: {e}")
+        return pd.DataFrame(columns=["Месяц", "Сумма"])
