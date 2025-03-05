@@ -1,3 +1,4 @@
+# views.py
 import json
 import logging
 import os
@@ -18,7 +19,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 def load_user_settings():
     """Загрузка пользовательских настроек"""
     try:
-        with open("user_settings.json", "r", encoding="utf-8") as file:
+        with open("..//user_settings.json", "r", encoding="utf-8") as file:
             return json.load(file)
     except Exception as e:
         logging.error(f"Ошибка загрузки user_settings.json: {e}")
@@ -39,89 +40,88 @@ def get_greeting():
         return "Доброй ночи"
 
 
-def get_card_data():
-    """Извлечение данных о картах из Excel"""
+def get_data_by_period(df: pd.DataFrame, date_time_str: str) -> pd.DataFrame:
+    """Фильтрация данных по периоду (с начала месяца до указанной даты)"""
     try:
-        # Чтение данных из файла
-        df = pd.read_excel("data/operations.xlsx", sheet_name="Отчет по операциям")
+        input_date = datetime.strptime(date_time_str, "%Y-%m-%d")
+        start_of_month = input_date.replace(day=1)
 
-        # Группировка по номеру карты и расчет общей суммы и кэшбэка
+        # Фильтрация данных за период
+        mask = (df["Дата платежа"] >= start_of_month) & (df["Дата платежа"] <= input_date)
+        return df.loc[mask]
+    except Exception as e:
+        logging.error(f"Ошибка фильтрации данных по периоду: {e}")
+        return pd.DataFrame()
+
+
+def get_card_data(df: pd.DataFrame) -> list:
+    """Извлечение данных о картах (только расходы)"""
+    try:
+        # Фильтрация только расходных операций
+        df_expenses = df[df["Сумма платежа"] < 0]
+
+        # Группировка и агрегация
         card_data = (
-            df.groupby("Номер карты")
-            .agg(total_spent=("Сумма операции", lambda x: abs(x).sum()), cashback=("Бонусы (включая кэшбэк)", "sum"))
+            df_expenses.groupby("Номер карты")
+            .agg(
+                total_spent=("Сумма платежа", lambda x: abs(x).sum()),
+                cashback=("Кэшбэк", "sum")
+            )
             .reset_index()
         )
 
-        # Преобразование данных в нужный формат
+        # Форматирование результата
         card_data["last_digits"] = card_data["Номер карты"].str[-4:]
-        card_data = card_data[["last_digits", "total_spent", "cashback"]].to_dict("records")
-
-        return card_data
+        return card_data[["last_digits", "total_spent", "cashback"]].to_dict("records")
     except Exception as e:
-        logging.error(f"Ошибка чтения данных о картах: {e}")
+        logging.error(f"Ошибка обработки данных о картах: {e}")
         return []
 
 
-def get_top_transactions(date_time_str):
-    """Извлечение топ-5 транзакций из Excel"""
+def get_top_transactions(df: pd.DataFrame) -> list:
+    """Извлечение топ-5 транзакций (только расходы)"""
     try:
-        # Преобразуем входную дату в datetime
-        input_date = datetime.strptime(date_time_str, "%Y-%m-%d %H:%M:%S")
-        start_of_month = input_date.replace(day=1)
+        # Фильтрация только расходных операций
+        df_expenses = df[df["Сумма платежа"] < 0]
 
-        # Чтение данных из файла
-        df = pd.read_excel("data/operations.xlsx", sheet_name="Отчет по операциям")
+        # Сортировка и выбор топ-5
+        top_5 = df_expenses.nlargest(5, "Сумма платежа")
 
-        # Преобразование столбца "Дата операции" в datetime
-        df["Дата операции"] = pd.to_datetime(df["Дата операции"], format="%d.%m.%Y %H:%M:%S")
-
-        # Фильтрация данных за период
-        mask = (df["Дата операции"] >= start_of_month) & (df["Дата операции"] <= input_date)
-        filtered_transactions = df.loc[mask]
-
-        # Сортировка по сумме и выбор топ-5
-        top_5 = filtered_transactions.nlargest(5, "Сумма операции")
-
-        # Преобразование данных в нужный формат
-        top_5["date"] = top_5["Дата операции"].dt.strftime("%d.%m.%Y")
-        top_5 = top_5.rename(columns={"Сумма операции": "amount", "Категория": "category", "Описание": "description"})
-
-        return top_5[["date", "amount", "category", "description"]].to_dict("records")
+        # Форматирование результата
+        top_5["date"] = top_5["Дата платежа"].dt.strftime("%d.%m.%Y")
+        return top_5.rename(columns={
+            "Сумма платежа": "amount",
+            "Категория": "category",
+            "Описание": "description"
+        })[["date", "amount", "category", "description"]].to_dict("records")
     except Exception as e:
-        logging.error(f"Ошибка чтения транзакций: {e}")
+        logging.error(f"Ошибка обработки транзакций: {e}")
         return []
 
 
-def generate_response(date_time_str):
+def generate_response(date_time_str: str) -> dict:
     """Главная функция"""
     try:
+        # Загрузка и подготовка данных
+        df = pd.read_excel("..//data/operations.xlsx", sheet_name="Отчет по операциям")
+        df["Дата платежа"] = pd.to_datetime(df["Дата платежа"], format="%d.%m.%Y")
+
+        # Фильтрация данных по периоду
+        filtered_df = get_data_by_period(df, date_time_str)
+
         # Загрузка настроек
         settings = load_user_settings()
         user_currencies = settings.get("user_currencies", [])
         user_stocks = settings.get("user_stocks", [])
 
-        # Определение приветствия
-        greeting = get_greeting()
-
-        # Получение данных о курсах валют и акциях
-        currency_rates = get_currency_rates(user_currencies)
-        stock_prices = get_stock_prices(user_stocks)
-
-        # Извлечение данных о картах и транзакциях
-        cards = get_card_data()
-        top_transactions = get_top_transactions(date_time_str)
-
-        # Формирование JSON-ответа
-        response = {
-            "greeting": greeting,
-            "cards": cards,
-            "top_transactions": top_transactions,
-            "currency_rates": currency_rates,
-            "stock_prices": stock_prices,
+        # Формирование ответа
+        return {
+            "greeting": get_greeting(),
+            "cards": get_card_data(filtered_df),
+            "top_transactions": get_top_transactions(filtered_df),
+            "currency_rates": get_currency_rates(user_currencies),
+            "stock_prices": get_stock_prices(user_stocks)
         }
-
-        return response
-
     except Exception as e:
         logging.error(f"Ошибка генерации ответа: {e}")
         return {"error": "Произошла ошибка при генерации ответа"}

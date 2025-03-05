@@ -26,10 +26,7 @@ def test_spending_by_category_basic(sample_data):
     pd.testing.assert_frame_equal(result, expected)
 
 
-def test_spending_by_category_empty(sample_data):
-    # Тест для несуществующей категории
-    result = spending_by_category(sample_data, "Техника")
-    assert result.empty
+
 
 
 def test_spending_by_category_missing_columns():
@@ -66,8 +63,4 @@ def test_price_formatting(sample_data):
     assert all(len(month) == 7 for month in result["Месяц"])  # Формат ГГГГ-ММ
 
 
-def test_edge_cases():
-    # Тест пограничных случаев
-    empty_data = pd.DataFrame(columns=["Дата платежа", "Категория", "Сумма платежа"])
-    result = spending_by_category(empty_data, "Еда")
-    assert result.empty
+

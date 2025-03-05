@@ -37,7 +37,7 @@ def main():
 
         if choice == "1":
             # Генерация веб-отчета
-            date_str = input("Введите дату и время (формат: ГГГГ-ММ-ДД ЧЧ:ММ:СС): ")
+            date_str = input("Введите дату и время (формат: ГГГГ-ММ-ДД): ")
             try:
                 report = generate_response(date_str)
                 with open("web_report.json", "w", encoding="utf-8") as f:

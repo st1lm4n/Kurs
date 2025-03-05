@@ -10,19 +10,16 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 
 def report_to_file(filename=None):
-    """Декоратор для сохранения отчетов в JSON файл"""
-
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
             try:
-                # Вызываем оригинальную функцию
+                # Выделяем filename из kwargs
+                custom_filename = kwargs.pop('filename', None)
+                file_name = custom_filename or filename or f"{func.__name__}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+
                 result = func(*args, **kwargs)
 
-                # Генерируем имя файла
-                file_name = filename or f"{func.__name__}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-
-                # Сохраняем результат
                 if isinstance(result, pd.DataFrame):
                     result.to_json(file_name, orient="records", indent=4, force_ascii=False)
                     logging.info(f"Отчет сохранен в файл: {file_name}")
@@ -30,7 +27,7 @@ def report_to_file(filename=None):
                 return result
 
             except Exception as e:
-                logging.error(f"Ошибка при сохранении отчета: {e}")
+                logging.error(f"Ошибка сохранения: {e}")
                 raise
 
         return wrapper
@@ -38,17 +35,8 @@ def report_to_file(filename=None):
     return decorator
 
 
-@report_to_file()
 def spending_by_category(transactions: pd.DataFrame, category: str, date: Optional[str] = None) -> pd.DataFrame:
-    """
-    Анализ трат по категории за последние 3 месяца
-    """
     try:
-        # Проверка наличия обязательных колонок
-        required_columns = ["Дата платежа", "Категория", "Сумма платежа"]
-        if not all(col in transactions.columns for col in required_columns):
-            raise ValueError("Отсутствуют обязательные колонки в данных")
-
         # Преобразование столбца 'Дата платежа'
         transactions["Дата платежа"] = pd.to_datetime(transactions["Дата платежа"], format="%d.%m.%Y")
 
@@ -58,19 +46,20 @@ def spending_by_category(transactions: pd.DataFrame, category: str, date: Option
 
         # Фильтрация данных
         filtered = transactions[
-            (transactions["Категория"] == category)
-            & (transactions["Дата платежа"] >= start_date)
-            & (transactions["Дата платежа"] <= current_date)
-        ]
-
-        # Отладочная печать
-        print(f"Найдено транзакций после фильтрации: {len(filtered)}")
+            (transactions["Категория"] == category) &
+            (transactions["Дата платежа"] >= start_date) &
+            (transactions["Дата платежа"] <= current_date)
+            ]
 
         # Группировка по месяцам
         result = filtered.groupby(pd.Grouper(key="Дата платежа", freq="ME"))["Сумма платежа"].sum().reset_index()
 
+        # Заполнение отсутствующих месяцев нулями
+        all_months = pd.date_range(start=start_date, end=current_date, freq="ME")
+        result = result.set_index("Дата платежа").reindex(all_months, fill_value=0).reset_index()
+
         # Форматирование результата
-        result = result.rename(columns={"Дата платежа": "Месяц", "Сумма платежа": "Сумма"})
+        result = result.rename(columns={"index": "Месяц", "Сумма платежа": "Сумма"})
         result["Месяц"] = result["Месяц"].dt.strftime("%Y-%m")
 
         return result
